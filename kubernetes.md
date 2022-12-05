@@ -52,6 +52,38 @@
     # 若要刪除
     kind delete cluster
     ```
++ 創建群集(with config)
+  > 參考：https://kind.sigs.k8s.io/docs/user/configuration/
+
+  需要先準備一份資源描述文件，命名為「kind_config.yml」
+  ```yml
+  kind: Cluster
+  apiVersion: kind.x-k8s.io/v1alpha4
+  name: learning
+  nodes:
+          - role: control-plane
+          - role: control-plane
+          - role: control-plane
+          - role: worker
+          - role: worker
+          - role: worker
+          - role: worker
+          - role: worker
+          - role: worker
+  ```
+  這份文件設定的群集很簡單，只有修改群集名稱以及節點設定，這裡我設定了3個control-plane、6個worker。
+  ```bash
+  # 使用設定檔建立群集
+  kind create cluster --config=kind_config.yml
+  
+  # 查看狀態
+  kind get nodes
+  or
+  kubectl get nodes
+
+  # 刪除群集，這裡需要指定群集名稱，也就是之前設定檔定義的「learning」
+  kind delete cluster --name=learning
+  ```
 
 #### 啟用dashboard
 > https://kubernetes.io/docs/tasks/access-application-cluster/web-ui-dashboard/
