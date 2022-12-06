@@ -62,8 +62,6 @@
   name: learning
   nodes:
           - role: control-plane
-          - role: control-plane
-          - role: control-plane
           - role: worker
           - role: worker
           - role: worker
@@ -71,7 +69,8 @@
           - role: worker
           - role: worker
   ```
-  這份文件設定的群集很簡單，只有修改群集名稱以及節點設定，這裡我設定了3個control-plane、6個worker。
+  這份文件設定的群集很簡單，只有修改群集名稱以及節點設定，這裡我設定了1個control-plane、6個worker。
+  > **WARN:** 我嘗試過使用多個control-plane，但似乎網路方面存在問題，需要額外設定，目前看文件似乎需要對kind_config.yml進行額外設定
   ```bash
   # 使用設定檔建立群集
   kind create cluster --config=kind_config.yml
@@ -87,6 +86,12 @@
 
 #### 啟用dashboard
 > https://kubernetes.io/docs/tasks/access-application-cluster/web-ui-dashboard/
+
++ 若需要Dashboard顯示cpu、memory的狀態，需要先安裝metrics-server
+    ```bash
+    https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+    ```
+  > **IMPORTANT:** 由於metrics server要求kubelet需要先使用x509驗證，kind初始設定又沒有包含此，官方建議若是開發目的，可新增`--kubelet-insecure-tls`參數到yaml檔裡，參考[這裡](https://github.com/kubernetes-sigs/metrics-server/issues/1025)。至於k8s簽發憑證的設定還需要再研究。
 
 + 開啟功能
     ```bash
@@ -173,3 +178,56 @@ kubectl get pods
 curl http://localhost:8001/api/v1/namespaces/default/pods/
 ```
 
+#### 藉由RESTful API來訪問api server
+> https://kubernetes.io/docs/tasks/administer-cluster/access-cluster-api/
++ 藉由`kubectl proxy`可以直接使用proxy，client不需要認證，可以直接訪問`localhost:8001`
++ 使用Bearer Token
+  產生Bearer Token後，可以通過此指令來測試
+  ```bash
+  curl $APISERVER --header "Authorization: Bearer $TOKEN" --insecure
+  ```
+  除了前面介紹的方法來產生token
+  ```bash
+  kubectl -n kubernetes-dashboard create token admin-user
+  ```
+  還可以手動建立secret，再查詢token
+  1. 建立secret的`sys-conf.yaml`
+  ```yml
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    namespace: kubernetes-dashboard
+    name: sys-token
+    annotations:
+      kubernetes.io/service-account.name: admin-user
+  type: kubernetes.io/service-account-token
+  ```
+  2. 提交給api server，會在之前建立的kubernetes-dashboard命名空間底下，建立一個給admin-user使用者的secret。
+  ```bash
+  kubectl apply -f sys-conf.yaml
+  ```
+  3. 查詢
+  ```bash
+  kubectl describe secret -n kubernetes-dashboard sys-token
+  
+  # 會返回類似下方的訊息
+  Name:         sys-token
+  Namespace:    kubernetes-dashboard
+  Labels:       <none>
+  Annotations:  kubernetes.io/service-account.name: admin-user
+                kubernetes.io/service-account.uid: 37b688e3-1829-4803-bc84-bd7ca9a6ea70
+  
+  Type:  kubernetes.io/service-account-token
+  
+  Data
+  ====
+  ca.crt:     1099 bytes
+  namespace:  20 bytes
+  token:      eyJhbGciOiJSUzI1NiIsImtpZCI6InNXQjlvTXpqaE1KVHJlTWdxU0hSMWdENzJKQUlGLW1RZ1BQV3RaNV90azQifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlcm5ldGVzLWRhc2hib2FyZCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJzeXMtdG9rZW4iLCJrdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3NlcnZpY2UtYWNjb3VudC5uYW1lIjoiYWRtaW4tdXNlciIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6IjM3YjY4OGUzLTE4MjktNDgwMy1iYzg0LWJkN2NhOWE2ZWE3MCIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDprdWJlcm5ldGVzLWRhc2hib2FyZDphZG1pbi11c2VyIn0.RzGHOmFqO_bM9mr2REZitTrm9TD9Iq7BVMi0xguH-NZrGYL0iLhWVYkqHSl1ANnPiFpXos0tpzK5rad2RcummNHwaGpdhWosL708s3VLerOssiL1EzQNK86a_7E9hwqmSFFUB3p18loQEkdtNSVr7e0D-EMt1VlrJ5LeoL1gGa8ol7_IEKi6Ur8cCQmd2U7fcVoxZRNAtdqZ-uJqI5kbK_Dh7zt7bWHuJX3P5j62NF5NlLwH0xs-okp2cPozIbIigNkbqX7koHvLwZ-qOgdfXq3xyIuJYG6x2pZAmUPfw5xaB5FN_hCIskBCj-vsV5rdq9kM5cwYQv5fcN954Holvw
+  ```
+  又或是
+  ```bash
+  kubectl get secret -n kubernetes-dashboard sys-token -o jsonpath="{.data.token}" | base64 --decode
+  ```
+  > **WARN:** `kubectl get secret ...`所返回的token是經過base64編碼的，因此要先解碼才能使用。
+  
